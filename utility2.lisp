@@ -737,7 +737,7 @@
 ;;a shitty version of our-member
 (funcall (lrec #'(lambda (x f)
 		   (if (eql 'a x)
-		       f; really hard to return 
+		       'a ;really hard to return rest of the list 
 		       (funcall f)))
 	       nil)
 	 '(b c a d))
@@ -749,3 +749,26 @@
       (if (eql obj (car lst))
 	  lst ;really hard to return 
 	  (our-member obj (cdr lst)))))
+
+;;an example of copy list
+(defun our-copy-list (lst)
+  (if (atom lst)
+      lst
+      (cons (car lst) ;assumes that it's single list and not nested (nested == tree)
+	    (our-copy-list (cdr lst)))))
+
+;;with lrec - our copy list
+(funcall (lrec #'(lambda (x f) (cons x (funcall f)))) '(1 2 3))
+
+;;remove duplicates 
+(funcall (lrec #'(lambda (x f) (adjoin x (funcall f)))) '( a b a c a d a a b b a a a e))
+
+;adjoin only adds it if it isn't in the list very cool way to do it
+(adjoin 'a '(a b c)); (A B C)
+(adjoin 'a '(b c d)); (A B C D)
+
+;find-if - for some function fn. like oddp 
+(lrec #'(lambda (x v) (if (fn x) x (funcall f))))
+
+;some - for some functon fn. like oddp 
+(lrec #'(lambda (x f) (or (fn x) (funcall f))))
