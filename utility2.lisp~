@@ -2,7 +2,7 @@
  
 (mapcan #'nicknames people); this to give a list of people and return it as a list
  
- 
+
 ;;towns - func that returns a list of nearby towns sorted from nearest to furthest
 ;;bookshops - func that returns a list of bookshops in the city
 ;;to find nearest town which has any bookshops, and the bookshops in that town we start with
@@ -733,3 +733,154 @@
 ;;our every
 (lrec #'(lambda (x f) (and (oddp x) (funcall f))) t)
 (funcall (lrec #'(lambda (x f) (and (oddp x) (funcall f))) t) '(1 3 5 7 9 1))
+
+;;a shitty version of our-member
+(funcall (lrec #'(lambda (x f)
+		   (if (eql 'a x)
+		       'a ;really hard to return rest of the list 
+		       (funcall f)))
+	       nil)
+	 '(b c a d))
+
+;;see the patern is close but it's hard to return the list
+(defun our-member (obj lst)
+  (if (null lst)
+      nil
+      (if (eql obj (car lst))
+	  lst ;really hard to return 
+	  (our-member obj (cdr lst)))))
+
+;;an example of copy list
+(defun our-copy-list (lst)
+  (if (atom lst)
+      lst
+      (cons (car lst) ;assumes that it's single list and not nested (nested == tree)
+	    (our-copy-list (cdr lst)))))
+
+;;with lrec - our copy list
+(funcall (lrec #'(lambda (x f) (cons x (funcall f)))) '(1 2 3))
+
+;;remove duplicates 
+(funcall (lrec #'(lambda (x f) (adjoin x (funcall f)))) '( a b a c a d a a b b a a a e))
+
+;adjoin only adds it if it isn't in the list very cool way to do it
+(adjoin 'a '(a b c)); (A B C)
+(adjoin 'a '(b c d)); (A B C D)
+
+;find-if - for some function fn. like oddp 
+(lrec #'(lambda (x v) (if (fn x) x (funcall f))))
+
+;some - for some functon fn. like oddp 
+(lrec #'(lambda (x f) (or (fn x) (funcall f))))
+
+;;;5.6 recursion on subtrees
+;;we can think of a list as a tree (a binary one) where the car is the left side and the cdr is the right side
+(a . b); draw it out
+(a b c);
+(a b (c d)); see how a binary tree with car being the left side and cdr being the right side of a binary tree
+ 
+(setq x '(a b)
+      l1 (list x 1))
+ 
+ 
+(eq x (car l1)); T ;see how it's pointing to the same thing
+ 
+;;these two look the same
+(copy-list l1); ((A B) 1)
+(copy-tree l1); ((A B) 1)
+ 
+;but see how they're different in practice?
+(eq x (car (copy-list l1))); T ;still points to the same thing!
+(eq x (car (copy-tree l1))); NIL ;no lonber points ot the same thing
+ 
+ 
+;;lets look for a different pattern in trees
+(defun our-copy-tree-orig (tree)
+  (if (atom tree)
+      tree
+      (cons (our-copy-tree-orig (car tree))
+            (our-copy-tree-orig (cdr tree)))))
+ 
+(eq x (car (our-copy-tree-orig l1))); NIL
+ 
+;;this definiiton is also a pattern check out count leaves that has to
+;;go through each leaf of a tree and count it
+(defun count-leaves-orig (tree)
+  (if (atom tree)
+      1
+      (+ (count-leaves-orig (car tree))
+         (count-leaves-orig (cdr tree)))))
+ 
+ 
+;;so we could define copy-tree like this
+(defun our-copy-tree (tree)
+  (if (atom tree)
+      tree
+      (cons (our-copy-tree (car tree))
+            (if (cdr tree) (our-copy-tree (cdr tree))))))
+ 
+;;and the counting leaves function could look like this
+(defun count-leaves (tree)
+  (if (atom tree)
+      1
+      (+ (count-leaves (car tree))
+         (or (if (cdr tree) (count-leaves (cdr tree)))
+             1))))
+ 
+(count-leaves-orig '((a b (c d)) (e) f)); 10
+(count-leaves '((a b (c d)) (e) f)); 10
+ 
+;;here's a way to define flatten that follows the above pattern
+(defun flatten1 (tree)
+  (if (atom tree)
+      (mklist tree)
+      (nconc (flatten1 (car tree))
+             (if (cdr tree) (flatten1 (cdr tree))))))
+ 
+ 
+(nconc '(a b) '(c d) '(e (f) g) '(h i))
+(flatten1 '(a b c (e (f) g) h i))
+ 
+ 
+;;since this searches all the leaves the caller can assume that
+;;fn given as the first arg will only be called on atoms
+(defun rfind-if (fn tree)
+  (if (atom tree)
+      (and (funcall fn tree) tree)
+      (or (rfind-if fn (car tree))
+          (if (cdr tree) (rfind-if fn (cdr tree))))))
+ 
+(rfind-if (fint #'numberp #'oddp) '(2 (3 4) 5)); 3
+(find-if (fint #'numberp #'oddp) '(2 (3 4) 5)); 5
+ 
+;;so rfind-if count-leaves and flatten1 are all similar
+ (defun ttrav (rec &optional (base #'identity))
+  (labels ((self (tree)
+             (if (atom tree)
+                 (if (functionp base)
+                     (funcall base tree)
+                     base)
+                 (funcall rec (self (car tree))
+                              (if (cdr tree) (self (cdr tree)))))))
+    #'self))
+ 
+ 
+(funcall (ttrav #'(lambda (l r) (+ l (or r 1))) 1) '(a b c))
+ 
+(defun ttrav2 (rec &optional (base #'identity))
+  (labels ((self (tree)
+             (if (atom tree)
+                 (if (functionp base)
+                     (funcall base tree)
+                     base)
+                 (funcall rec #'(lambda ()
+                                  (self (car tree)))
+                              #'(lambda ()
+                                  (if (cdr tree) (self (cdr tree))))))))
+    #'self))
+ 
+;;see how this also works but we have to do a funcall each time
+(funcall (ttrav2 #'(lambda (l r) (+ (funcall l) (or (funcall r) 1))) 1) '(a b c))
+
+;;so see we need a more general definition for rfind-if since 
+;;the (or (rfind-if fn (car tree)) ;it needs the current object 

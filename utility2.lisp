@@ -8,7 +8,7 @@
 ;;to find nearest town which has any bookshops, and the bookshops in that town we start with
  
 (let ((town (find-if #'bookshops towns)));find-if rets first elem which bookshops returns a non-nil value
- (values town (bookshops town))
+ (values town (bookshops town)))
  
 ;;so bookshops runs a function and then the result is just wasted if it's an expensive process
 ;;then bookshops is again called on the town
@@ -772,3 +772,139 @@
 
 ;some - for some functon fn. like oddp 
 (lrec #'(lambda (x f) (or (fn x) (funcall f))))
+
+;;;5.6 recursion on subtrees
+;;we can think of a list as a tree (a binary one) where the car is the left side and the cdr is the right side
+(a . b); draw it out
+(a b c);
+(a b (c d)); see how a binary tree with car being the left side and cdr being the right side of a binary tree
+ 
+(setq x '(a b)
+      l1 (list x 1))
+ 
+ 
+(eq x (car l1)); T ;see how it's pointing to the same thing
+ 
+;;these two look the same
+(copy-list l1); ((A B) 1)
+(copy-tree l1); ((A B) 1)
+ 
+;but see how they're different in practice?
+(eq x (car (copy-list l1))); T ;still points to the same thing!
+(eq x (car (copy-tree l1))); NIL ;no lonber points ot the same thing
+ 
+ 
+;;lets look for a different pattern in trees
+(defun our-copy-tree-orig (tree)
+  (if (atom tree)
+      tree
+      (cons (our-copy-tree-orig (car tree))
+            (our-copy-tree-orig (cdr tree)))))
+ 
+(eq x (car (our-copy-tree-orig l1))); NIL
+ 
+;;this definiiton is also a pattern check out count leaves that has to
+;;go through each leaf of a tree and count it
+(defun count-leaves-orig (tree)
+  (if (atom tree)
+      1
+      (+ (count-leaves-orig (car tree))
+         (count-leaves-orig (cdr tree)))))
+ 
+ 
+;;so we could define copy-tree like this
+(defun our-copy-tree (tree)
+  (if (atom tree)
+      tree
+      (cons (our-copy-tree (car tree))
+            (if (cdr tree) (our-copy-tree (cdr tree))))))
+ 
+;;and the counting leaves function could look like this
+(defun count-leaves (tree)
+  (if (atom tree)
+      1
+      (+ (count-leaves (car tree))
+         (or (if (cdr tree) (count-leaves (cdr tree)))
+             1))))
+ 
+(count-leaves-orig '((a b (c d)) (e) f)); 10
+(count-leaves '((a b (c d)) (e) f)); 10
+ 
+;;here's a way to define flatten that follows the above pattern
+(defun flatten1 (tree)
+  (if (atom tree)
+      (mklist tree)
+      (nconc (flatten1 (car tree))
+             (if (cdr tree) (flatten1 (cdr tree))))))
+ 
+ 
+(nconc '(a b) '(c d) '(e (f) g) '(h i))
+(flatten1 '(a b c (e (f) g) h i))
+ 
+ 
+;;since this searches all the leaves the caller can assume that
+;;fn given as the first arg will only be called on atoms
+(defun rfind-if (fn tree)
+  (if (atom tree)
+      (and (funcall fn tree) tree)
+      (or (rfind-if fn (car tree))
+          (if (cdr tree) (rfind-if fn (cdr tree))))))
+ 
+(rfind-if (fint #'numberp #'oddp) '(2 (3 4) 5)); 3
+(find-if (fint #'numberp #'oddp) '(2 (3 4) 5)); 5
+ 
+;;so rfind-if count-leaves and flatten1 are all similar
+(defun ttrav (rec &optional (base #'identity))
+  (labels ((self (tree)
+             (if (atom tree)
+                 (if (functionp base)
+                     (funcall base tree)
+                     base)
+                 (funcall rec (self (car tree))
+			  (if (cdr tree) (self (cdr tree)))))))
+    #'self))
+ 
+ 
+(funcall (ttrav #'(lambda (l r) (+ l (or r 1))) 1) '(a b c))
+ 
+;;aka trec - won't search the whole tree
+(defun ttrav2 (rec &optional (base #'identity))
+  (labels ((self (tree)
+             (if (atom tree)
+                 (if (functionp base)
+                     (funcall base tree)
+                     base)
+                 (funcall rec #'(lambda ()
+                                  (self (car tree)))
+                              #'(lambda ()
+                                  (if (cdr tree) (self (cdr tree))))))))
+    #'self))
+ 
+;;see how this also works but we have to do a funcall each time
+(funcall (ttrav2 #'(lambda (l r) (+ (funcall l) (or (funcall r) 1))) 1) '(a b c))
+
+;;technically this works 
+(funcall (ttrav #'(lambda (l r) (or l r))
+		#'(lambda (tree) (and (oddp tree) tree)))
+	 '(2 4 ((9)) 3))
+
+;;so see we need a more general definition for rfind-if - we need the current object
+
+(defun trec (rec &optional (base #'identity))
+  (labels ((self (tree)
+	     (if (atom tree)
+		 (if (functionp base)
+		     (funcall base tree)
+		     tree)
+		 (funcall rec tree
+			      #'(lambda ()
+				  (self (car tree)))
+			      #'(lambda ()
+				  (if (cdr tree) (self (cdr tree))))))))
+    #'self))
+
+;;take away the tree in the (and (oddp tree) tree) to see why it's there
+;;the and returns the second argument
+(funcall (trec #'(lambda (o l r) (or (funcall l) (funcall r)))
+		#'(lambda (tree) (and (oddp tree) tree)))
+	 '(2 4 (((9))) 3))
