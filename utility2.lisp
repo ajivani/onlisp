@@ -726,21 +726,48 @@
                                   (self (cdr lst))))))) ;;rec takes a function that recurses
     #'self))
  
-;;so our length
+;;so our-length
 (lrec #'(lambda (x f) (1+ (funcall f))) 0) ;the car of the list is always ignored x is always ignored
 (funcall (lrec #'(lambda (x f) (1+ (funcall f))) 0)
-         '(1 2 3 4)); returns 4
-;;our every
+         '(1 2 3 4 5-elements)); returns 5
+;;our-every
 (lrec #'(lambda (x f) (and (oddp x) (funcall f))) t)
-(funcall (lrec #'(lambda (x f) (and (oddp x) (funcall f))) t) '(1 3 5 7 9 1))
+;spaced out so you can see the base case and see the (oddp (car lst)) <==> (oddp x)
+(funcall (lrec #'(lambda (x f) 
+		   (and (oddp x) (funcall f))) 
+	       t) 
+	 '(1 3 5 7 9 1))
 
 ;;a shitty version of our-member
 (funcall (lrec #'(lambda (x f)
 		   (if (eql 'a x)
-		       'a ;really hard to return rest of the list 
+		       x ;really hard to return rest of the list - f returns the closure repping the cdr of the list
 		       (funcall f)))
 	       nil)
 	 '(b c a d))
+
+(defun our-member-lrec (obj lst)
+  (funcall (lrec #'(lambda (x f) (if (eql obj x)
+				     x
+				     (funcall f)))
+		 nil)
+	   lst))
+
+(our-member-lrec 'a '(b c a d)); see how it works but not very well - hard to get the cdr of the list
+
+(funcall (trec #'(lambda (o l r) (if (eql (car o) 'a) o (funcall r))))
+	 '(b c d a d z)); (A D Z)
+(funcall (trec #'(lambda (o l r) (if (eql (car o) 'a) (cdr o) (funcall r))))
+	 '(b c d a d z)); (D Z)
+
+(defun our-member-with-trec (obj lst)
+  (funcall (trec #'(lambda (o l r) 
+		     (if (eql (car o) obj)
+			 o
+			 (funcall r))))
+	   lst))
+
+(our-member-with-trec 'a '(b c a d z)); (A D Z)
 
 ;;see the patern is close but it's hard to return the list
 (defun our-member (obj lst)
@@ -867,7 +894,7 @@
  
 (funcall (ttrav #'(lambda (l r) (+ l (or r 1))) 1) '(a b c))
  
-;;aka trec - won't search the whole tree
+;;aka trec - won't search the whole tree - actually this will 
 (defun ttrav2 (rec &optional (base #'identity))
   (labels ((self (tree)
              (if (atom tree)
@@ -883,7 +910,7 @@
 ;;see how this also works but we have to do a funcall each time
 (funcall (ttrav2 #'(lambda (l r) (+ (funcall l) (or (funcall r) 1))) 1) '(a b c))
 
-;;technically this works 
+;;technically this works - but it will go through each branch no matter what)
 (funcall (ttrav #'(lambda (l r) (or l r))
 		#'(lambda (tree) (and (oddp tree) tree)))
 	 '(2 4 ((9)) 3))
@@ -908,3 +935,94 @@
 (funcall (trec #'(lambda (o l r) (or (funcall l) (funcall r)))
 		#'(lambda (tree) (and (oddp tree) tree)))
 	 '(2 4 (((9))) 3))
+
+
+(funcall (trec #'(lambda (o l r) (or (funcall l) (funcall r)))
+		(and (oddp o) o))
+	 '(2 4 (((9))) 3))
+
+;;flatten using trec
+(funcall (trec #'(lambda (o l r) (nconc (funcall l) (funcall r)))
+	       #'mklist)
+	 '((2) 3 ((((4)))) 5 (7 8)))
+
+
+;;;;functions as representations
+;;closures are active have local state and can make multiple instances of themselves
+
+(defvar *nodes* (make-hash-table))
+
+(defun defnode (name conts &optional yes no)
+  (setf (gethash name *nodes*)
+	(if yes
+	    #'(lambda ()
+		(format t "~A~%>> " conts)
+		(case (read)
+		  (yes (funcall (gethash yes *nodes*)))
+		  (t   (funcall (gethash no  *nodes*)))))
+	    #'(lambda () conts))))
+		     
+
+(defnode 'people "Is the person a man?" 'male 'female)
+(defnode 'male "Is he living?" 'liveman 'deadman)
+(defnode 'deadman "Was he American?" 'us 'them)
+(defnode 'us "Is he on a coin?" 'coin 'cidence)
+(defnode 'coin "Is the coin a penny?" 'penny 'coins)
+(defnode 'penny 'lincoln)
+(defnode 'female 'aliya)
+
+;(funcall (gethash 'people *nodes*))
+(funcall (gethash 'female *nodes*))
+
+
+;;third way if say the network isn't going to be redefined
+
+(defvar *nodes* nil)
+
+(defun defnode (&rest args)
+  (push args *nodes*)
+  args)
+
+(defun compile-net2 (root)
+  (let ((node (assoc root *nodes*)))
+    (if (null node)
+	nil
+	(let ((conts (second node))
+	      (yes   (third node))
+	      (no    (fourth node)))
+	  (if yes
+	      (let ((yes-fn (compile-net2 yes))
+		    (no-fn  (compile-net2 no)))
+		#'(lambda ()
+		    (format t "~A~%>> " conts)
+		    (funcall (if (eq (read) 'yes)
+				 (funcall yes-fn)
+				 (funcall no-fn)))))
+	      #'(lambda () conts))))))
+
+;;do all the defnodes again
+(defnode 'people "Is the person a man?" 'male 'female)
+(defnode 'male "Is he living?" 'liveman 'deadman)
+(defnode 'deadman "Was he American?" 'us 'them)
+(defnode 'us "Is he on a coin?" 'coin 'cidence)
+(defnode 'coin "Is the coin a penny?" 'penny 'coins)
+(defnode 'penny 'lincoln)
+(defnode 'female 'aliya)
+
+(print *nodes*); notice assoc list
+
+(setf n (compile-net2 'people)); recursively create the network all at once
+(setf n2 (compile-net2 'female))
+
+(setf *nodes* nil); free up the memory again - note n now has everything needed to run the network
+(print *nodes*)
+
+;;see how it's nil but n can still call everything
+;(funcall n)
+(funcall n2)
+;;SEE HOW CLOSURES ARE DATA OBJECTS. and they're used to represent things just like
+;;how structures can.
+
+
+;;;;7 MACROS!
+ 
