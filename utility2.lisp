@@ -1025,4 +1025,163 @@
 
 
 ;;;;7 MACROS!
- 
+;a function that generates expressions (lisp code)
+;functions produce results
+;macros produce expressons - and these expressions when evaluated produce results
+
+;;take the follwoing macro
+(defmacro nil! (x)
+  (list 'setq x nil))
+
+;and a var
+(defvar *a* 100)
+
+;look what happens when we expand the macro
+(macroexpand '(nil! *a*)); (SETQ *A* NIL)
+
+;;two things happen when lisp source code is compiled (like compiled to binary so the machine can understand it)
+;;the parser takes the lisp source code and gives expressions to the compiler 
+;;the compiler takes lists of Lisp objects and compiles it
+;;so the parser gives the lisp objects to the compiler but lisp macros
+;;will expand the code before it reaches the compiler!
+;;;the compiler sees expanded lisp code! so it actually ends up evaluating
+;;the expanded code!
+
+;;;7.2 backquote
+(equal '(a b c) `(a b c)); T both are the same with
+;which is equal to
+'(list 'a 'b 'c)
+
+;so lets see what backquote with a comma does `, and a ` ,@
+(setq a 1 b 2 c 3 d 4)
+
+;comma evaluates it - it turns off the quote that would be implicit there
+`(a ,b c ,d); (A 2 C 4)
+;the same as this - (but like the compliment of this)
+(list 'a b 'c d)
+
+;;the backquote means that we can unquote
+`(a b ,c (',(+ a b c)) (+ a b) 'c '((,a ,b)) c 'c `c ,c `,c `,,c)
+
+`(,a ,(+ b c)); (1 5)
+`(,a ,(+ b `,c)); (1 5) as well
+
+(defmacro nil! (x)
+  `(setq ,x nil))
+
+(defmacro nif (expr pos zero neg)
+  `(case (truncate (signum ,expr))
+     (1 ,pos)
+     (0 ,zero)
+     (-1 ,neg)))
+
+(mapcar #'(lambda (x) (nif x 'p 'z 'n))
+	'(1 -1.3 0.2 0))
+
+;;backquote is for unquote
+;; ,@ must be in a list
+;;a , can be surrounded by n other , (commas)
+;;but must be surrounded by n+1 other ` (backquotes)
+
+(setq b '(1 2 3))
+
+`(a ,b c)
+`(a ,@b c)
+`(+ ,@b); (+ 1 2 3) 
+(eval `(+ ,@b)); 6
+
+(defmacro our-when (test &body body)
+  `(if ,test
+       (progn
+	 ,@body)))
+
+(let ((i 10))
+  (our-when (> i 0)
+    (print i)
+    (incf i)
+    (print 'a)))
+
+(let ((i 0))
+  (pprint (macroexpand-1 '(our-when (> i 0)
+			   (print i)
+			   (incf i)
+			   (print 'a)))))
+
+(pprint (macroexpand-1 '(our-when (hungry)
+			 (do-this)
+			 (purr)
+			 (rub-legs))))
+
+(defmacro mac (expr)
+  `(pprint (macroexpand-1 ',expr)))
+
+(mac (our-when (hungry)
+       (do-this)
+       (purr)
+       (rub-legs)))
+
+;;takes a way to bind and then 
+(destructuring-bind (x (y) . z) '(a (b) c d e f)
+  (list x y z)); (A B (C D E F)) ; see how x and y are bound and .z is the rest. cdr z would be the 
+
+;;get is like setf finds what i think is the function slot and names it
+
+;;our-dolist
+
+(defmacro our-dolist ((var lst &optional result) &body body)
+  `(progn
+     (mapc #'(lambda (,var) ,@body)
+	   ,lst)
+     (let ((,var nil))
+       ,result)))
+
+(mac (our-dolist (x '(a b c))
+       (print x)))
+
+(defmacro when-bind ((var expr) &body body)
+  `(let ((,var ,expr))
+     (when ,var
+       ,@body)))
+
+
+
+(mac (when-bind (input (get-user-input))
+       (process input)));run this and see that it's hiding the let, making code neater
+
+
+;;macro def - come back to this 
+;;get is like a kind of setf so it grabs a pointer and gives it a closure in this case below
+
+(defmacro our-expander (name) `(get ,name 'expander)); kind of a place to store the macro-function
+
+(defmacro our-defmacro (name params &rest body)
+  (let ((g (gensym)))
+    `(progn
+       (setf (our-expander ',name)
+	     #'(lambda (,g) ;;this is a function it's storing? 
+		 (block ,name
+		   (destructuring-bind ,params (cdr ,g)
+		     ,@body))))
+       ',name)))
+
+(defun our-macroexpand-1 (expr)
+  (if (and (consp expr) (our-expander (car expr)))
+      (funcall (our-expander (car expr)) expr)
+      expr))
+
+;;looks like it's turning our-expnder's 'expnader (name slot/field) into something that points to a lambda expression (aka poiting to a closure)
+;;then we call that closure 
+
+(our-defmacro while2 (tst &body body)
+  `(do ()
+       ((not ,tst))
+     ,@body))
+
+(our-expander 'while2); it's a closure (a function that has some binding)...cool
+
+(our-macroexpand-1 '(while2 (< c 10)
+		     (print c)
+		     (incf c)))
+
+;;;review htis!
+
