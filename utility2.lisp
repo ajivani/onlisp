@@ -935,8 +935,7 @@
 (funcall (trec #'(lambda (o l r) (or (funcall l) (funcall r)))
 		#'(lambda (tree) (and (oddp tree) tree)))
 	 '(2 4 (((9))) 3))
-
-
+ 
 (funcall (trec #'(lambda (o l r) (or (funcall l) (funcall r)))
 		(and (oddp o) o))
 	 '(2 4 (((9))) 3))
@@ -1126,8 +1125,7 @@
 
 ;;get is like setf finds what i think is the function slot and names it
 
-;;our-dolist
-
+;;our-dolist note the param list to it - like a destructuring-bind
 (defmacro our-dolist ((var lst &optional result) &body body)
   `(progn
      (mapc #'(lambda (,var) ,@body)
@@ -1178,10 +1176,134 @@
      ,@body))
 
 (our-expander 'while2); it's a closure (a function that has some binding)...cool
+;#<FUNCTION (LAMBDA (#:G0) :IN "/Users/aliya/lisp/onlisp/utility2.lisp") {100582C42B}>
 
 (our-macroexpand-1 '(while2 (< c 10)
 		     (print c)
-		     (incf c)))
+		     (incf c)));it expands correctly ;(DO () ((NOT (< C 10))) (PRINT C) (INCF C))
 
-;;;review htis!
+(mac (while2 (< c 10)
+	     (print c)
+	     (incf c))); see this one doesn't expand correctly since it's technically a closure!
 
+;;;review this!
+
+
+;;think about what sort of expression you want to be able to use
+;;think about what you want the expression to expand into.
+;write some PROGRAM that transforms the first form into the second
+
+(do ((w 3)
+     (x 1 (1+ x))
+     (y 1 (1+ y))
+     (z))
+    ((> x 10) (princ z) y)
+  (princ x)
+  (princ y))
+
+;;should expand to something like this
+(progn ((w 3) (x 1) (y 1) (z nil)) ;progn needs a list of symbols
+    foo
+     (if (> x 10)
+	 (return (progn (princ z) y)))
+     (princ x)
+     (princ y)
+     (psetq x (1+ x) y (1+ y)) ;note here we need to set values in parallel
+    (go foo)))
+
+
+(defmacro our-do (bindforms (test &rest result) &body body)
+  (let ((label (gensym)))
+    `(progn ,(make-initforms bindforms)
+       ,label
+       (if ,test
+	   (return (progn ,@result)))
+       ,@body
+       (psetq ,@(make-stepforms bindforms))
+       (go ,label))))
+
+
+;;to create a list of symbols and their init bindings
+(defun make-initforms (bindforms)
+  (mapcar #'(lambda (b)
+	      (if (consp b)
+		  (list (car b) (cadr b))
+		  (list b nil)))
+	  bindforms))
+
+;;for the psetq binds, because we write it out we knkow we need psetq
+;;psetq sets stuff in parallel,
+;;if we used setq then we've make do* 
+(defun make-stepforms (bindforms)
+  (mapcan #'(lambda (b)
+	      (if (and (consp b) (third b))
+		  (list (car b) (third b))
+		  nil))
+	  bindforms))
+
+
+
+;;in genral the rule below is true
+;;in expander code clairty matters more than optimization (since we won't always be looking at the expanded code - well not when we figure out the macro)
+;;opposite is true for expansion code (want optimization over clarity)
+(defmacro our-and (&rest args)
+  (case (length args)
+    (0 t)
+    (1 (car args))
+    (t `(if ,(car args)
+	    (our-and ,@(cdr args))))))
+
+;C-c M-m will expand everything 
+(macroexpand '(our-and a b c))
+(our-and a b c d)
+
+(defmacro our-andd (&rest args)
+  (if (null args)
+      t
+      (labels ((expander (rest)
+		 (if (cdr rest)
+		     `(if ,(car args)
+			  ,(expander (cdr rest)))
+		     (car rest))))
+	(expander args))))
+
+
+(macroexpand '(our-andb a b c))
+;C-c M-m
+(our-andb a b c)
+
+;;see how much clearer the first def of our-and was even though it uses length and it's not very efficient
+
+(defmacro tmac1 (&rest args)
+  `(+ ,@args))
+
+(mac (tmac1 1 2 3)); see why we needed the ,@ when we're talking about the args
+
+
+;;;;Macros are used for 
+
+;;;;Transformations
+;A built-in access function will often have a converse 
+;whose purpose is to set what the access function retrieves.
+;;the converse of car is rplaca
+;;the converse of cdr is rplacd
+(defvar *x* '(a b c))
+(mac (setf (car *x*) 1)); (RPLACA *x* 1)
+;so this
+(setf (car *x*) 1)
+;setf expands into below:
+;;;;since it really needs to SET the value that car GOT for it;;;;
+(progn (rplaca *x* 1) 1); see how setf has to look inside its first argument and see
+;;if it's (car some-thing) then it calls (progn (rplaca some-thing) return some-ting)
+
+
+;;we can write avg as a function or a macro
+(defun avgf (&rest args)
+  (/ (apply #'+ args) (length args))); length coud be expensive if computed at runtime everytime
+
+(defmacro avg (&rest args)
+  `(/ (+ ,@args) ,(length args))); see the advantage since we already know the num of args
+
+;;say you want to apply macro like you would a function
+;;can wrap it in a lambda expression 
+(mac (funcall #'(lambda (x y) (avg x y)) 1 3)); but we can't pass it a varying number of arguments so it's still has some flaws
